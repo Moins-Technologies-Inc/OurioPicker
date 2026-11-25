@@ -3,7 +3,7 @@
 Updated: 2026-11-25. Standard and main index live in OuroHub (`CURRENT_WORK.md`, `work/README.md`).
 
 ## State
-PICK-001 (`ouro-terminal-picker` v1) implemented test-first on branch `feature/1-session-picker` (issue #1, OuroHub issue #159). Round-2 review fixes (blocking F1–F3 and non-blocking F4–F9) completed test-first. Governing plan: OuroHub `plans/ouro-terminal-picker/PICK-001-session-picker.md`. Status in `FEATURES.md`: `Review`.
+PICK-001 (`ouro-terminal-picker` v1) merged into `main` (OurioPicker#2, issue #1 closed) after review round 1 FAIL and a delta review PASS bound to `a24fd4f`; repository public (E252). Governing plan: OuroHub `plans/ouro-terminal-picker/PICK-001-session-picker.md`. Next: Arch package (`packaging/arch/PKGBUILD`, tag `v0.1.0`) and the private workstation manager's switch to the binary (OuroHub #159, E255); OuroManagement#10 lists Ourio in its Settings (E256).
 
 ## What exists
 - Library crate `ouro_terminal_picker` (`src/lib.rs`, `unsafe_code = "forbid"`, edition 2024, `rust-version = "1.100"`, `rust-toolchain.toml` pinned to `1.100.0`):
