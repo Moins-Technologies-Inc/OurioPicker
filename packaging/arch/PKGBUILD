@@ -15,7 +15,7 @@ optdepends=(
 )
 makedepends=('cargo' 'clang' 'mold')
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Moins-Technologies-Inc/OurioPicker/archive/v${pkgver}.tar.gz")
-sha512sums=('00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000') # updated on v0.1.1 tag
+sha512sums=('97f202ddffd68aece0b3da11686b30cde5054ccf7d26b34bb148f4994890d080ad8ef526533861ca2cc12d9707ddedb69a234367f617538ce52f5774989bc83e') # updated on v0.1.1 tag
 options=('!lto')
 
 # The source tree selects Rust 1.100.0 (rust-toolchain.toml) and links with
