@@ -417,17 +417,17 @@ r, w = os.pipe()
 os.close(r)
 try:
     proc = subprocess.run(
-        [sys.argv[1], "completions", "bash"],
+        [sys.argv[1], "completions", sys.argv[2]],
         stdin=subprocess.DEVNULL,
         stdout=w,
         stderr=subprocess.PIPE,
         env={
-            "PATH": sys.argv[2],
-            "SHELL": sys.argv[3],
+            "PATH": sys.argv[3],
+            "SHELL": sys.argv[4],
             "ZELLIJ": "1",
-            "HOME": sys.argv[4],
-            "XDG_CONFIG_HOME": sys.argv[5],
-            "RIO_CONFIG_HOME": sys.argv[6],
+            "HOME": sys.argv[5],
+            "XDG_CONFIG_HOME": sys.argv[6],
+            "RIO_CONFIG_HOME": sys.argv[7],
         },
     )
 finally:
@@ -436,30 +436,33 @@ sys.stderr.buffer.write(proc.stderr)
 sys.exit(proc.returncode if proc.returncode >= 0 else 128 - proc.returncode)
 "#;
 
-    let out = Command::new("/usr/bin/python3")
-        .args(["-I", "-c", py])
-        .arg(bin_path())
-        .arg(env.dir.path().join("bin"))
-        .arg(&env.fake_shell)
-        .arg(&env.home)
-        .arg(&env.xdg_config)
-        .arg(&env.rio_config)
-        .output()
-        .unwrap();
+    for shell in ["bash", "fish", "zsh", "elvish", "powershell"] {
+        let out = Command::new("/usr/bin/python3")
+            .args(["-I", "-c", py])
+            .arg(bin_path())
+            .arg(shell)
+            .arg(env.dir.path().join("bin"))
+            .arg(&env.fake_shell)
+            .arg(&env.home)
+            .arg(&env.xdg_config)
+            .arg(&env.rio_config)
+            .output()
+            .unwrap();
 
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(
-        out.status.code(),
-        Some(1),
-        "broken stdout must exit cleanly with status 1 (not 0, 2, or 101); stderr: {stderr}"
-    );
-    assert!(
-        !stderr.contains("panicked at"),
-        "broken stdout must not panic; stderr: {stderr}"
-    );
-    assert!(
-        !stderr.contains("unrecognized subcommand"),
-        "broken stdout must reach completion generation; stderr: {stderr}"
-    );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{shell}: broken stdout must exit cleanly with status 1 (not 0, 2, or 101); stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("panicked at"),
+            "{shell}: broken stdout must not panic; stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("unrecognized subcommand"),
+            "{shell}: broken stdout must reach completion generation; stderr: {stderr}"
+        );
+    }
     env.assert_no_side_effects();
 }

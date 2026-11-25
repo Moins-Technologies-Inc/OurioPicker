@@ -4,7 +4,7 @@ Updated: 2026-11-25. Standard and main index live in OuroHub (`CURRENT_WORK.md`,
 
 ## State
 - PICK-001 (`ouro-terminal-picker` v1) merged into `main` (OurioPicker#2, issue #1 closed) after review round 1 FAIL and a delta review PASS bound to `a24fd4f`; repository public (E252). Arch package (`packaging/arch/PKGBUILD`) merged in OurioPicker#4 (issue #3 closed). Governing plan: OuroHub `plans/ouro-terminal-picker/PICK-001-session-picker.md`.
-- PICK-002 (`ouro-terminal-picker completions <shell>`, issue #6, branch `feature/6-completions`): implemented with `clap_complete 4.6.12` (MIT OR Apache-2.0, resolved under the 7-day Cargo cooldown with zero extra transitive dependencies), ready for independent review.
+- PICK-003 (`ouro-terminal-picker completions <shell>`, issue #6, branch `feature/6-completions`): implemented with `clap_complete 4.6.12` (MIT OR Apache-2.0, resolved under the 7-day Cargo cooldown with zero extra transitive dependencies), ready for delta review.
 
 ## What exists
 - Library crate `ouro_terminal_picker` (`src/lib.rs`, `unsafe_code = "forbid"`, edition 2024, `rust-version = "1.100"`, `rust-toolchain.toml` pinned to `1.100.0`):
@@ -14,7 +14,7 @@ Updated: 2026-11-25. Standard and main index live in OuroHub (`CURRENT_WORK.md`,
   - `src/picker.rs`: pure state machine `Picker`, `Key`, `Mode`, `Step`, and `render_lines` (fits `20x5` and wider, text-only markers, scrolling viewport).
   - `src/config/{mod,kitty,rio}.rs`: `TerminalKind`, `ConfigError` (incl. `ParentTraversal`, `MissingParent`, `InvalidUtf8`), `FileOp`, `ConfigPlan` (LCS line diff for `--dry-run`), atomic mode-preserving `apply_plan` (`file.set_permissions` on open fd, writability re-check), symlink-parent/target/traversal/read-only refusal, Kitty strict-UTF-8 two-line marked include block, Rio/Ourio `toml_edit` format-preserving edits with `--force` `0600` backups.
   - `src/term.rs`: `TerminalError`, `TerminalGuard` (public RAII guard), `map_key_event`, `is_interactive_tty`, `no_color_enabled`, `restore_terminal`, `install_panic_hook`, `run_tui`.
-- Binary `ouro-terminal-picker` (`src/main.rs`): picker mode (with panic `catch_unwind` + shell fallback, `run_tui` error warn logging, and `LogSink` switching to direct stderr pass-through after terminal restore before any `exec`), `install`, `uninstall`, `print-config`, and `completions <shell>` (`clap_complete::aot::{Generator, Shell}` via `Cli::command()` + `try_generate`, executed before tracing initialization, shell resolution, TTY/nested `ZELLIJ` guards, and any config I/O).
+- Binary `ouro-terminal-picker` (`src/main.rs`): picker mode (with panic `catch_unwind` + shell fallback, `run_tui` error warn logging, and `LogSink` switching to direct stderr pass-through after terminal restore before any `exec`), `install`, `uninstall`, `print-config`, and `completions <shell>` (`clap_complete::aot::{Generator, Shell}` via `Cli::command()` + `try_generate` into an in-memory buffer before `write_all` + `flush`, executed before tracing initialization, shell resolution, TTY/nested `ZELLIJ` guards, and any config I/O).
 - Integration & PTY suites (`tests/cli_and_launch.rs`, `tests/completions.rs`, `tests/pty_smoke.rs`) and wiki docs (`docs/wiki/zellij-session-list.md`, `docs/wiki/terminal-wiring.md`, `docs/wiki/shell-completions.md`).
 
 ## Round-2 review fixes applied (F1–F9)
@@ -41,7 +41,7 @@ Updated: 2026-11-25. Standard and main index live in OuroHub (`CURRENT_WORK.md`,
   - `cargo check --locked --all-targets --all-features`: PASS
   - `cargo clippy --locked --all-targets --all-features -- -D warnings`: PASS (0 warnings)
   - `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps`: PASS (0 warnings)
-  - `cargo test --locked`: 51 lib unit + 2 bin unit + 3 `cli_and_launch` + 8 `completions` + 10 `pty_smoke` + 77 doctests = 151 passed, 0 failed, 0 ignored
+  - `cargo test --locked`: 51 lib unit + 3 bin unit + 3 `cli_and_launch` + 8 `completions` + 10 `pty_smoke` + 77 doctests = 152 passed, 0 failed, 0 ignored
   - `cargo deny check` (`0.20.2`): PASS (`advisories ok, bans ok, licenses ok, sources ok`)
   - `cargo machete` (`0.9.2`): PASS (0 unused dependencies)
   - Completion syntax checks on built binary: `bash -n` PASS (228 lines), `fish --no-execute` PASS (51 lines), `zsh -n` SKIPPED (`zsh` not installed on workstation; generated 175 lines starting with `#compdef ouro-terminal-picker`)

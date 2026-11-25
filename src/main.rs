@@ -296,9 +296,12 @@ fn write_completions(shell: Shell, out: &mut dyn Write) -> Result<()> {
     let bin_name = cmd.get_name().to_owned();
     cmd.set_bin_name(bin_name);
     cmd.build();
+    let mut buf = Vec::new();
     shell
-        .try_generate(&cmd, out)
+        .try_generate(&cmd, &mut buf)
         .context("failed to generate shell completions")?;
+    out.write_all(&buf)
+        .context("failed to write shell completions")?;
     out.flush().context("failed to flush shell completions")?;
     Ok(())
 }
@@ -426,15 +429,45 @@ mod tests {
         }
     }
 
+    struct FailingFlushWriter;
+
+    impl Write for FailingFlushWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "simulated flush failure",
+            ))
+        }
+    }
+
     #[test]
     fn write_completions_returns_error_on_failing_writer() {
-        let mut writer = FailingWriter;
-        let err = write_completions(Shell::Bash, &mut writer).unwrap_err();
-        let chain = format!("{err:#}");
-        assert!(
-            chain.contains("simulated broken pipe"),
-            "unexpected error chain: {chain}"
-        );
+        for &shell in Shell::value_variants() {
+            let mut writer = FailingWriter;
+            let err = write_completions(shell, &mut writer).unwrap_err();
+            let chain = format!("{err:#}");
+            assert!(
+                chain.contains("simulated broken pipe"),
+                "{shell}: unexpected error chain: {chain}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_completions_returns_error_on_failing_flush() {
+        for &shell in Shell::value_variants() {
+            let mut writer = FailingFlushWriter;
+            let err = write_completions(shell, &mut writer).unwrap_err();
+            let chain = format!("{err:#}");
+            assert!(
+                chain.contains("simulated flush failure"),
+                "{shell}: unexpected error chain: {chain}"
+            );
+        }
     }
 
     #[test]
