@@ -1,0 +1,41 @@
+# Maintainer: Moins Technologies Inc. <https://github.com/Moins-Technologies-Inc>
+
+pkgname=ouro-terminal-picker
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Pick a Zellij session, start a new one or open a plain shell when a terminal opens (OurioPicker)"
+arch=('x86_64')
+url="https://github.com/Moins-Technologies-Inc/OurioPicker"
+license=('MIT')
+depends=('gcc-libs' 'glibc')
+optdepends=('zellij: sessions to pick from' 'kitty: terminal wiring' 'rio: terminal wiring')
+makedepends=('cargo' 'clang' 'mold')
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Moins-Technologies-Inc/OurioPicker/archive/v${pkgver}.tar.gz")
+sha512sums=('eb6ea8a04fc7a37c51d5e79d0f6b268d316c197185c345c0158263369d2a9bf38c360d16160a68bd2d7e75f8548d8e0180c130c7c0262aed8de1c540661b6721')
+options=('!lto')
+
+# The source tree selects Rust 1.100.0 (rust-toolchain.toml) and links with
+# clang + mold (.cargo/config.toml).
+
+prepare() {
+  cd "OurioPicker-${pkgver}"
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "OurioPicker-${pkgver}"
+  cargo build --frozen --release --bin ouro-terminal-picker
+}
+
+check() {
+  cd "OurioPicker-${pkgver}"
+  cargo test --frozen --lib
+}
+
+package() {
+  cd "OurioPicker-${pkgver}"
+  install -Dm755 target/release/ouro-terminal-picker -t "${pkgdir}/usr/bin"
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  install -Dm644 docs/wiki/terminal-wiring.md "${pkgdir}/usr/share/doc/${pkgname}/terminal-wiring.md"
+}
