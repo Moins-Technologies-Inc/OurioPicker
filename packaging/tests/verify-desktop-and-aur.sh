@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hermetic verification suite for OurioPicker desktop launcher and AUR packaging (PICK-002).
+# Hermetic verification suite for OurioPicker desktop launcher, icons and AUR packaging (PICK-002).
 # Zero network calls, zero sudo, zero package installation, zero Cargo builds.
 set -uo pipefail
 
@@ -7,11 +7,11 @@ SCRIPT_DIR="$(cd "$(/usr/bin/dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
 
 DESKTOP_FILE="${REPO_ROOT}/packaging/desktop/ouro-terminal-picker.desktop"
+ALLOW_FILE="${REPO_ROOT}/quality/binary-allow.txt"
+CARGO_TOML="${REPO_ROOT}/Cargo.toml"
 PKGBUILD_FILE="${REPO_ROOT}/packaging/arch/PKGBUILD"
 SRCINFO_FILE="${REPO_ROOT}/packaging/arch/.SRCINFO"
 AUR_DOC_FILE="${REPO_ROOT}/docs/wiki/aur-packaging.md"
-
-V010_SHA512="eb6ea8a04fc7a37c51d5e79d0f6b268d316c197185c345c0158263369d2a9bf38c360d16160a68bd2d7e75f8548d8e0180c130c7c0262aed8de1c540661b6721"
 
 passed=0
 failed=0
@@ -76,12 +76,29 @@ else
   fail "desktop-keys: skipped (desktop file missing)"
 fi
 
-# 4. No synthetic/placeholder icon assets committed under packaging/
-fake_icons="$(/usr/bin/find "${REPO_ROOT}/packaging" -maxdepth 4 \( -name '*.svg' -o -name '*.png' -o -name '*.ico' -o -name '*.xpm' \) 2>/dev/null || true)"
-if [[ -z "${fake_icons}" ]]; then
-  pass "no-unapproved-icon-assets"
-else
-  fail "no-unapproved-icon-assets: unexpected icon asset(s) present while icon is pending approval: ${fake_icons}"
+# 4. Both owner-accepted PNG icons exist, have PNG magic bytes, and match quality/binary-allow.txt
+icons_ok=1
+for rel in "packaging/icons/ouro-terminal-picker.png" "packaging/icons/ouro-terminal-picker-dark.png"; do
+  abs="${REPO_ROOT}/${rel}"
+  if [[ ! -f "${abs}" ]]; then
+    fail "icons-allowed: missing ${rel}"
+    icons_ok=0
+    continue
+  fi
+  magic="$(/usr/bin/od -An -tx1 -N8 "${abs}" | /usr/bin/tr -d ' \n')"
+  if [[ "${magic}" != "89504e470d0a1a0a" ]]; then
+    fail "icons-allowed: ${rel} is not a valid PNG file (magic=${magic})"
+    icons_ok=0
+    continue
+  fi
+  blob="$(/usr/bin/git -C "${REPO_ROOT}" hash-object "${abs}")"
+  if [[ ! -f "${ALLOW_FILE}" ]] || ! /usr/bin/grep -Eq "^${rel}[[:space:]]+${blob}([[:space:]]|$)" "${ALLOW_FILE}"; then
+    fail "icons-allowed: ${rel} (blob ${blob}) is not allowlisted in quality/binary-allow.txt"
+    icons_ok=0
+  fi
+done
+if [[ "${icons_ok}" -eq 1 ]]; then
+  pass "icons-allowed"
 fi
 
 # 5. PKGBUILD syntax check
@@ -91,49 +108,66 @@ else
   fail "pkgbuild-syntax: bash -n failed or PKGBUILD missing"
 fi
 
-# 6. PKGBUILD AUR rules and desktop/completion coordination
-if [[ -f "${PKGBUILD_FILE}" ]]; then
+# 6. PKGBUILD AUR rules, version alignment, completion generation, and install paths
+if [[ -f "${PKGBUILD_FILE}" && -f "${CARGO_TOML}" ]]; then
   pkg_ok=1
-  if ! /usr/bin/grep -Eq "^pkgver=0\.1\.0$" "${PKGBUILD_FILE}"; then
-    fail "pkgbuild-rules: expected pkgver=0.1.0"
+  cargo_ver="$(/usr/bin/awk -F'"' '/^version = / { print $2; exit }' "${CARGO_TOML}")"
+  pkg_ver="$(/usr/bin/awk -F'=' '/^pkgver=/ { print $2; exit }' "${PKGBUILD_FILE}")"
+  if [[ "${cargo_ver}" != "0.1.1" || "${pkg_ver}" != "${cargo_ver}" ]]; then
+    fail "pkgbuild-rules: expected Cargo.toml version and PKGBUILD pkgver to both equal 0.1.1 (got cargo=${cargo_ver}, pkgver=${pkg_ver})"
     pkg_ok=0
   fi
-  if ! /usr/bin/grep -Eq "^pkgrel=2$" "${PKGBUILD_FILE}"; then
-    fail "pkgbuild-rules: expected pkgrel=2"
+  if ! /usr/bin/grep -Eq "^pkgrel=1$" "${PKGBUILD_FILE}"; then
+    fail "pkgbuild-rules: expected pkgrel=1 for 0.1.1 release"
     pkg_ok=0
   fi
-  if ! /usr/bin/grep -Fq "${V010_SHA512}" "${PKGBUILD_FILE}"; then
-    fail "pkgbuild-rules: missing verified v0.1.0 tarball sha512sum"
+  if ! /usr/bin/grep -Fxq 'source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Moins-Technologies-Inc/OurioPicker/archive/v${pkgver}.tar.gz")' "${PKGBUILD_FILE}"; then
+    fail "pkgbuild-rules: expected single immutable GitHub release tarball source"
     pkg_ok=0
   fi
   if /usr/bin/grep -Eq "['\"]SKIP['\"]" "${PKGBUILD_FILE}"; then
     fail "pkgbuild-rules: SKIP checksums are forbidden"
     pkg_ok=0
   fi
+  if ! /usr/bin/grep -Eq "^sha512sums=\('[0-9a-f]{128}'\)" "${PKGBUILD_FILE}"; then
+    fail "pkgbuild-rules: sha512sums must contain a valid 128-hex-character digest"
+    pkg_ok=0
+  fi
   if /usr/bin/grep -Eq "^replaces=" "${PKGBUILD_FILE}"; then
     fail "pkgbuild-rules: replaces= must not be used in AUR PKGBUILD"
     pkg_ok=0
   fi
-  if /usr/bin/grep -E "^source=|^  ['\"].*https?://" "${PKGBUILD_FILE}" | /usr/bin/grep -Eq '\.(png|svg|ico)'; then
-    fail "pkgbuild-rules: must not reference a nonexistent icon URL in source=()"
+  if /usr/bin/grep -Eq 'package build is blocked|return 1' "${PKGBUILD_FILE}"; then
+    fail "pkgbuild-rules: prepare() blocker should be removed for 0.1.1"
     pkg_ok=0
   fi
-  if ! /usr/bin/grep -Fq 'usr/share/applications/ouro-terminal-picker.desktop' "${PKGBUILD_FILE}"; then
-    fail "pkgbuild-rules: package() must install usr/share/applications/ouro-terminal-picker.desktop"
-    pkg_ok=0
-  fi
-  # Ensure package() installs from ${srcdir}, not from the v0.1.0 archive working directory
-  if /usr/bin/grep -Eq 'install[[:space:]].*packaging/desktop/ouro-terminal-picker\.desktop' "${PKGBUILD_FILE}"; then
-    fail "pkgbuild-rules: package() must not reference packaging/desktop/ouro-terminal-picker.desktop absent from v0.1.0 tarball"
-    pkg_ok=0
-  fi
-  for comp_path in \
-    "usr/share/bash-completion/completions/ouro-terminal-picker" \
-    "usr/share/fish/vendor_completions.d/ouro-terminal-picker.fish" \
-    "usr/share/zsh/site-functions/_ouro-terminal-picker"
+  for gen_line in \
+    "./target/release/ouro-terminal-picker completions bash" \
+    "./target/release/ouro-terminal-picker completions fish" \
+    "./target/release/ouro-terminal-picker completions zsh"
   do
-    if ! /usr/bin/grep -Fq "${comp_path}" "${PKGBUILD_FILE}"; then
-      fail "pkgbuild-rules: PKGBUILD must document Arch completion path ${comp_path}"
+    if ! /usr/bin/grep -Fq "${gen_line}" "${PKGBUILD_FILE}"; then
+      fail "pkgbuild-rules: build() must generate completions from freshly built binary (${gen_line})"
+      pkg_ok=0
+    fi
+  done
+  for install_target in \
+    'usr/bin' \
+    'usr/share/applications/ouro-terminal-picker.desktop' \
+    'usr/share/pixmaps/ouro-terminal-picker.png' \
+    'usr/share/pixmaps/ouro-terminal-picker-dark.png' \
+    'usr/share/bash-completion/completions/ouro-terminal-picker' \
+    'usr/share/fish/vendor_completions.d/ouro-terminal-picker.fish' \
+    'usr/share/zsh/site-functions/_ouro-terminal-picker' \
+    'usr/share/licenses/${pkgname}/LICENSE' \
+    'usr/share/doc/${pkgname}/README.md' \
+    'usr/share/doc/${pkgname}/terminal-wiring.md' \
+    'usr/share/doc/${pkgname}/shell-completions.md' \
+    'usr/share/doc/${pkgname}/zellij-session-list.md' \
+    'usr/share/doc/${pkgname}/aur-packaging.md'
+  do
+    if ! /usr/bin/grep -Fq "${install_target}" "${PKGBUILD_FILE}"; then
+      fail "pkgbuild-rules: package() missing install target ${install_target}"
       pkg_ok=0
     fi
   done
@@ -141,7 +175,7 @@ if [[ -f "${PKGBUILD_FILE}" ]]; then
     pass "pkgbuild-rules"
   fi
 else
-  fail "pkgbuild-rules: PKGBUILD missing"
+  fail "pkgbuild-rules: PKGBUILD or Cargo.toml missing"
 fi
 
 # 7. .SRCINFO exists and matches makepkg --printsrcinfo byte-for-byte
@@ -158,19 +192,7 @@ else
   fail "srcinfo-sync: missing ${SRCINFO_FILE}"
 fi
 
-# 8. Desktop file sha512sum matches PKGBUILD and .SRCINFO
-if [[ -f "${DESKTOP_FILE}" && -f "${PKGBUILD_FILE}" && -f "${SRCINFO_FILE}" ]]; then
-  desktop_sha="$(/usr/bin/sha512sum "${DESKTOP_FILE}" | /usr/bin/awk '{print $1}')"
-  if /usr/bin/grep -Fq "${desktop_sha}" "${PKGBUILD_FILE}" && /usr/bin/grep -Fq "${desktop_sha}" "${SRCINFO_FILE}"; then
-    pass "desktop-checksum-match"
-  else
-    fail "desktop-checksum-match: desktop sha512 (${desktop_sha}) missing from PKGBUILD or .SRCINFO"
-  fi
-else
-  fail "desktop-checksum-match: missing desktop/PKGBUILD/.SRCINFO"
-fi
-
-# 9. No built package tarballs inside packaging/arch/
+# 8. No built package tarballs inside packaging/arch/
 pkg_tarballs="$(/usr/bin/find "${REPO_ROOT}/packaging/arch" -maxdepth 2 -name '*.pkg.tar*' 2>/dev/null || true)"
 if [[ -z "${pkg_tarballs}" ]]; then
   pass "no-pkg-artifacts"
@@ -178,20 +200,7 @@ else
   fail "no-pkg-artifacts: built package tarball(s) found in packaging/arch: ${pkg_tarballs}"
 fi
 
-# 10. Fail-closed icon blocker guard in prepare()
-if [[ -f "${PKGBUILD_FILE}" ]]; then
-  guard_out="$(/usr/bin/bash -c 'source "$1" && prepare' _ "${PKGBUILD_FILE}" 2>&1)"
-  guard_rc=$?
-  if [[ "${guard_rc}" -ne 0 ]] && printf '%s' "${guard_out}" | /usr/bin/grep -Eqi 'blocked.*icon|transparent png'; then
-    pass "blocked-build-guard"
-  else
-    fail "blocked-build-guard: prepare() must fail closed while icon is pending (rc=${guard_rc}, out=${guard_out})"
-  fi
-else
-  fail "blocked-build-guard: PKGBUILD missing"
-fi
-
-# 11. AUR documentation exists and covers required manual steps and blockers
+# 9. AUR documentation exists and covers required manual steps and paths
 if [[ -f "${AUR_DOC_FILE}" ]]; then
   doc_ok=1
   for pat in \
@@ -200,7 +209,8 @@ if [[ -f "${AUR_DOC_FILE}" ]]; then
     "PKGBUILD" \
     "\.SRCINFO" \
     "pkg\.tar" \
-    "clap_complete" \
+    "usr/share/pixmaps/ouro-terminal-picker\.png" \
+    "usr/share/pixmaps/ouro-terminal-picker-dark\.png" \
     "usr/share/bash-completion/completions/ouro-terminal-picker" \
     "usr/share/fish/vendor_completions\.d/ouro-terminal-picker\.fish" \
     "usr/share/zsh/site-functions/_ouro-terminal-picker"
