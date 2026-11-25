@@ -1,0 +1,119 @@
+# TEMPLATE for public / future-public Ouro repositories that build a CLI binary (issue #170).
+# Copy to <repo>/.github/workflows/aur-release-notify.yml and fill in PKGNAME below.
+# Nothing in .github/workflow-templates/ runs in OuroHub.
+#
+# Why repository_dispatch instead of workflow_call:
+#   In GitHub Actions, a called workflow_call job runs with the CALLER's github.repository and
+#   github.token (and GitHub also blocks public repositories like OurioPicker from calling a
+#   private reusable workflow). Therefore workflow_call in OuroHub/aur-update-sha.yml is for
+#   OuroHub-internal callers only, and ALL external repositories (both public and private) use
+#   this template to send a repository_dispatch event with secrets.OUROHUB_AUR_DISPATCH_TOKEN.
+#
+# Required repository or organisation secret:
+#   OUROHUB_AUR_DISPATCH_TOKEN  Fine-grained PAT or GitHub App token with Contents: write on
+#                               Moins-Technologies-Inc/OuroHub (required by GitHub's
+#                               repository_dispatch API).
+#
+# Per-repository overrides (edit the env block below; leave empty to use OuroHub defaults):
+#   PKGNAME               (required) AUR pkgname registered in OuroHub/aur/packages.toml
+#   TARBALL_URL_OVERRIDE  (optional) Custom release tarball URL if not GitHub's default tag archive
+#   CHECKSUM_ALGO         (optional) Checksum algorithm: sha512 (default) or sha256
+#   PKGREL_OVERRIDE       (optional) Explicit pkgrel integer override (default: 1 on version bump)
+name: aur-release-notify
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to dispatch (for example v0.2.0)
+        required: true
+        type: string
+      tarball_url_override:
+        description: Optional tarball URL override
+        required: false
+        type: string
+        default: ''
+      checksum_algo:
+        description: Optional checksum algorithm override (sha512 or sha256; empty uses repo default)
+        required: false
+        type: string
+        default: ''
+      pkgrel_override:
+        description: Optional explicit pkgrel override
+        required: false
+        type: string
+        default: ''
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 5
+    env:
+      # --- Per-repository configuration / overrides ---
+      PKGNAME: 'ouro-terminal-picker'  # REQUIRED: set to the AUR pkgname in OuroHub/aur/packages.toml
+      TARBALL_URL_OVERRIDE: ''  # OPTIONAL: override default GitHub archive URL
+      CHECKSUM_ALGO: 'sha512'   # OPTIONAL: sha512 (default) or sha256
+      PKGREL_OVERRIDE: ''       # OPTIONAL: positive integer override
+    steps:
+      - name: Dispatch aur-update-sha event to OuroHub
+        env:
+          DISPATCH_TOKEN: ${{ secrets.OUROHUB_AUR_DISPATCH_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_TARBALL_URL: ${{ inputs.tarball_url_override }}
+          INPUT_CHECKSUM_ALGO: ${{ inputs.checksum_algo }}
+          INPUT_PKGREL: ${{ inputs.pkgrel_override }}
+        run: |
+          set -eu
+          if [ -z "${DISPATCH_TOKEN:-}" ]; then
+            echo "ERROR: secrets.OUROHUB_AUR_DISPATCH_TOKEN is not set. Configure a token scoped to Moins-Technologies-Inc/OuroHub (Contents: write) to enable AUR auto-updates." >&2
+            exit 1
+          fi
+          if [ -z "${PKGNAME:-}" ]; then
+            echo "ERROR: PKGNAME is empty. Set env.PKGNAME in .github/workflows/aur-release-notify.yml to the package name registered in OuroHub/aur/packages.toml." >&2
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+          : "${TAG:?release tag could not be determined}"
+
+          TARBALL_URL="${INPUT_TARBALL_URL:-${TARBALL_URL_OVERRIDE:-}}"
+          ALGO="${INPUT_CHECKSUM_ALGO:-${CHECKSUM_ALGO:-sha512}}"
+          PKGREL="${INPUT_PKGREL:-${PKGREL_OVERRIDE:-}}"
+
+          PAYLOAD="$(TAG="$TAG" TARBALL_URL="$TARBALL_URL" ALGO="$ALGO" PKGREL="$PKGREL" /usr/bin/python3 -B - <<'PY'
+          import json, os
+          cp = {
+              "pkgname": os.environ["PKGNAME"],
+              "tag": os.environ["TAG"],
+              "repo": os.environ["SOURCE_REPO"],
+              "checksum_algo": os.environ["ALGO"],
+          }
+          if os.environ.get("TARBALL_URL"):
+              cp["tarball_url"] = os.environ["TARBALL_URL"]
+          if os.environ.get("PKGREL"):
+              cp["pkgrel"] = os.environ["PKGREL"]
+          print(json.dumps({"event_type": "aur-update-sha", "client_payload": cp}))
+          PY
+          )"
+
+          /usr/bin/curl --fail-with-body -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "$PAYLOAD" \
+            "https://api.github.com/repos/Moins-Technologies-Inc/OuroHub/dispatches"
+          echo "Dispatched aur-update-sha for ${PKGNAME} (${TAG}) to Moins-Technologies-Inc/OuroHub."
