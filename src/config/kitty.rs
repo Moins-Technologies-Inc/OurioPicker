@@ -9,12 +9,36 @@ use crate::config::{
 };
 
 /// Name of the managed include file created inside the Kitty config directory.
+///
+/// # Examples
+///
+/// ```
+/// use ouro_terminal_picker::config::kitty::INCLUDE_FILE_NAME;
+///
+/// assert_eq!(INCLUDE_FILE_NAME, "ouro-terminal-picker.conf");
+/// ```
 pub const INCLUDE_FILE_NAME: &str = "ouro-terminal-picker.conf";
 
 /// Comment marker written immediately above the managed `include` line in `kitty.conf`.
+///
+/// # Examples
+///
+/// ```
+/// use ouro_terminal_picker::config::kitty::MARKER_LINE;
+///
+/// assert_eq!(MARKER_LINE, "# ouro-terminal-picker");
+/// ```
 pub const MARKER_LINE: &str = "# ouro-terminal-picker";
 
 /// Kitty include directive referencing [`INCLUDE_FILE_NAME`].
+///
+/// # Examples
+///
+/// ```
+/// use ouro_terminal_picker::config::kitty::INCLUDE_LINE;
+///
+/// assert_eq!(INCLUDE_LINE, "include ouro-terminal-picker.conf");
+/// ```
 pub const INCLUDE_LINE: &str = "include ouro-terminal-picker.conf";
 
 /// Resolve the Kitty config directory (`$XDG_CONFIG_HOME/kitty`, else `$HOME/.config/kitty`).
@@ -90,10 +114,15 @@ fn has_managed_block(lines: &[&str]) -> bool {
         .any(|pair| matches!(pair, [a, b] if a.trim() == MARKER_LINE && b.trim() == INCLUDE_LINE))
 }
 
-fn append_managed_block(existing: Option<&[u8]>) -> Vec<u8> {
-    let mut text = existing
-        .map(|b| String::from_utf8_lossy(b).into_owned())
-        .unwrap_or_default();
+fn decode_kitty_conf<'a>(path: &Path, bytes: &'a [u8]) -> Result<&'a str, ConfigError> {
+    std::str::from_utf8(bytes).map_err(|source| ConfigError::InvalidUtf8 {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn append_managed_block(existing: Option<&str>) -> Vec<u8> {
+    let mut text = existing.unwrap_or_default().to_owned();
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
     }
@@ -104,8 +133,7 @@ fn append_managed_block(existing: Option<&[u8]>) -> Vec<u8> {
     text.into_bytes()
 }
 
-fn remove_managed_block(existing: &[u8]) -> Option<Vec<u8>> {
-    let text = String::from_utf8_lossy(existing);
+fn remove_managed_block(text: &str) -> Option<Vec<u8>> {
     let mut out = String::with_capacity(text.len());
     let raw_lines: Vec<&str> = text.split_inclusive('\n').collect();
     let mut idx = 0usize;
@@ -157,6 +185,11 @@ pub fn plan_install_bytes(
     let include_path = kitty_dir.join(INCLUDE_FILE_NAME);
     let kitty_conf_path = kitty_dir.join("kitty.conf");
 
+    let existing_text = match existing_kitty_conf {
+        Some(bytes) => Some(decode_kitty_conf(&kitty_conf_path, bytes)?),
+        None => None,
+    };
+
     let mut ops = Vec::new();
     if existing_include != Some(include_bytes.as_slice()) {
         ops.push(FileOp::Write {
@@ -166,14 +199,13 @@ pub fn plan_install_bytes(
         });
     }
 
-    let already_included = existing_kitty_conf.is_some_and(|bytes| {
-        let text = String::from_utf8_lossy(bytes);
+    let already_included = existing_text.is_some_and(|text| {
         let lines: Vec<&str> = text.lines().collect();
         has_managed_block(&lines)
     });
 
     if !already_included {
-        let updated = append_managed_block(existing_kitty_conf);
+        let updated = append_managed_block(existing_text);
         ops.push(FileOp::Write {
             path: kitty_conf_path,
             before: existing_kitty_conf.map(ToOwned::to_owned),
@@ -242,14 +274,15 @@ pub fn plan_uninstall_bytes(
     let kitty_conf_path = kitty_dir.join("kitty.conf");
     let mut ops = Vec::new();
 
-    if let Some(conf_bytes) = existing_kitty_conf
-        && let Some(updated) = remove_managed_block(conf_bytes)
-    {
-        ops.push(FileOp::Write {
-            path: kitty_conf_path,
-            before: Some(conf_bytes.to_owned()),
-            after: updated,
-        });
+    if let Some(conf_bytes) = existing_kitty_conf {
+        let conf_text = decode_kitty_conf(&kitty_conf_path, conf_bytes)?;
+        if let Some(updated) = remove_managed_block(conf_text) {
+            ops.push(FileOp::Write {
+                path: kitty_conf_path,
+                before: Some(conf_bytes.to_owned()),
+                after: updated,
+            });
+        }
     }
 
     if let Some(inc_bytes) = existing_include {
@@ -427,5 +460,17 @@ mod tests {
         let mut perms = fs::metadata(&ro_conf).unwrap().permissions();
         perms.set_mode(0o644);
         fs::set_permissions(&ro_conf, perms).unwrap();
+    }
+
+    #[test]
+    fn f6_rejects_invalid_utf8_in_kitty_conf() {
+        let bin = Path::new("/usr/local/bin/ouro-terminal-picker");
+        let invalid = b"font_size 12\n\xff\xfe\n";
+        let err_install = plan_install_bytes(Path::new("/tmp/kitty"), Some(invalid), None, bin)
+            .expect_err("F6: invalid UTF-8 in kitty.conf must fail cleanly on install");
+        assert!(matches!(err_install, ConfigError::InvalidUtf8 { .. }));
+        let err_uninstall = plan_uninstall_bytes(Path::new("/tmp/kitty"), Some(invalid), None)
+            .expect_err("F6: invalid UTF-8 in kitty.conf must fail cleanly on uninstall");
+        assert!(matches!(err_uninstall, ConfigError::InvalidUtf8 { .. }));
     }
 }

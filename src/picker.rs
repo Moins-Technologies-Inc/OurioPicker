@@ -15,7 +15,7 @@ const MAX_PROMPT_BUFFER: usize = 256;
 ///
 /// assert_ne!(Key::Enter, Key::Esc);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     /// Move selection up.
     Up,
@@ -42,7 +42,7 @@ pub enum Key {
 ///
 /// assert_ne!(Mode::List, Mode::NamePrompt);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// Selecting from existing sessions, New session, or Plain shell.
     List,
@@ -77,7 +77,7 @@ pub enum Step {
 /// let mut picker = Picker::new(Vec::new(), None);
 /// assert_eq!(picker.handle(Key::Esc), Step::Done(Choice::Shell));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Picker {
     sessions: Vec<Session>,
     list_error: Option<String>,

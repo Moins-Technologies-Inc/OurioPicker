@@ -25,7 +25,7 @@ static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// assert_eq!(TerminalKind::Kitty.as_str(), "kitty");
 /// assert_eq!(TerminalKind::Rio.as_str(), "rio");
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalKind {
     /// Kitty terminal emulator (`kitty.conf` + `ouro-terminal-picker.conf`).
     Kitty,
@@ -81,6 +81,27 @@ pub enum ConfigError {
     SymlinkParent {
         /// Symlinked ancestor directory.
         path: PathBuf,
+    },
+    /// Target path contains a parent-directory traversal (`..`) component.
+    #[error("refusing parent directory traversal (..): {path}")]
+    ParentTraversal {
+        /// Rejected path containing `..`.
+        path: PathBuf,
+    },
+    /// Target path has no parent directory (for example `/` or an empty path).
+    #[error("target path has no parent directory: {path}")]
+    MissingParent {
+        /// Rejected path without a parent directory.
+        path: PathBuf,
+    },
+    /// Existing configuration file is not valid UTF-8.
+    #[error("configuration file is not valid UTF-8 at {path}: {source}")]
+    InvalidUtf8 {
+        /// Path to the non-UTF-8 file.
+        path: PathBuf,
+        /// UTF-8 decoding error.
+        #[source]
+        source: std::str::Utf8Error,
     },
     /// Target configuration file is itself a symlink.
     #[error("refusing to edit symlinked config {path}; add manually:\n{manual_hint}")]
@@ -260,16 +281,9 @@ impl ConfigPlan {
                         .map(|b| String::from_utf8_lossy(b).into_owned())
                         .unwrap_or_default();
                     let new_text = String::from_utf8_lossy(after);
-                    for line in old_text.lines() {
-                        if !new_text.lines().any(|n| n == line) {
-                            out.push_str(&format!("-{line}\n"));
-                        }
-                    }
-                    for line in new_text.lines() {
-                        if !old_text.lines().any(|o| o == line) {
-                            out.push_str(&format!("+{line}\n"));
-                        }
-                    }
+                    let old_lines: Vec<&str> = old_text.lines().collect();
+                    let new_lines: Vec<&str> = new_text.lines().collect();
+                    append_line_diff(&mut out, &old_lines, &new_lines);
                 }
                 FileOp::Remove { path, before } => {
                     out.push_str(&format!("remove {}\n", path.display()));
@@ -280,6 +294,79 @@ impl ConfigPlan {
             }
         }
         out
+    }
+}
+
+const MAX_LCS_LINES: usize = 2048;
+
+fn append_line_diff(out: &mut String, old_lines: &[&str], new_lines: &[&str]) {
+    let n = old_lines.len();
+    let m = new_lines.len();
+    if n == 0 {
+        for line in new_lines {
+            out.push_str(&format!("+{line}\n"));
+        }
+        return;
+    }
+    if m == 0 {
+        for line in old_lines {
+            out.push_str(&format!("-{line}\n"));
+        }
+        return;
+    }
+    if n > MAX_LCS_LINES || m > MAX_LCS_LINES {
+        for line in old_lines {
+            out.push_str(&format!("-{line}\n"));
+        }
+        for line in new_lines {
+            out.push_str(&format!("+{line}\n"));
+        }
+        return;
+    }
+
+    let cols = m + 1;
+    let mut dp = vec![0usize; (n + 1) * cols];
+    for i in (0..n).rev() {
+        let old_line = old_lines.get(i).copied();
+        for j in (0..m).rev() {
+            let val = if old_line == new_lines.get(j).copied() {
+                dp.get((i + 1) * cols + (j + 1)).copied().unwrap_or(0) + 1
+            } else {
+                let down = dp.get((i + 1) * cols + j).copied().unwrap_or(0);
+                let right = dp.get(i * cols + (j + 1)).copied().unwrap_or(0);
+                down.max(right)
+            };
+            if let Some(slot) = dp.get_mut(i * cols + j) {
+                *slot = val;
+            }
+        }
+    }
+
+    let mut i = 0usize;
+    let mut j = 0usize;
+    while i < n && j < m {
+        let ol = old_lines.get(i).copied().unwrap_or("");
+        let nl = new_lines.get(j).copied().unwrap_or("");
+        if ol == nl {
+            i += 1;
+            j += 1;
+        } else {
+            let down = dp.get((i + 1) * cols + j).copied().unwrap_or(0);
+            let right = dp.get(i * cols + (j + 1)).copied().unwrap_or(0);
+            if down >= right {
+                out.push_str(&format!("-{ol}\n"));
+                i += 1;
+            } else {
+                out.push_str(&format!("+{nl}\n"));
+                j += 1;
+            }
+        }
+    }
+    for ol in old_lines.iter().skip(i) {
+        out.push_str(&format!("-{ol}\n"));
+    }
+    for nl in new_lines.iter().skip(j) {
+        out.push_str(&format!("+{nl}\n"));
     }
 }
 
@@ -327,6 +414,15 @@ pub fn validate_binary_path(binary_path: &Path) -> Result<&str, ConfigError> {
 /// assert!(ensure_no_symlink_ancestors(Path::new("/")).is_ok());
 /// ```
 pub fn ensure_no_symlink_ancestors(dir: &Path) -> Result<(), ConfigError> {
+    if dir
+        .components()
+        .any(|comp| matches!(comp, Component::ParentDir))
+    {
+        return Err(ConfigError::ParentTraversal {
+            path: dir.to_path_buf(),
+        });
+    }
+
     let mut current = PathBuf::new();
     for comp in dir.components() {
         match comp {
@@ -351,7 +447,12 @@ pub fn ensure_no_symlink_ancestors(dir: &Path) -> Result<(), ConfigError> {
                     }
                 }
             }
-            Component::CurDir | Component::ParentDir | Component::Prefix(_) => {
+            Component::ParentDir => {
+                return Err(ConfigError::ParentTraversal {
+                    path: dir.to_path_buf(),
+                });
+            }
+            Component::CurDir | Component::Prefix(_) => {
                 current.push(comp.as_os_str());
             }
         }
@@ -405,10 +506,15 @@ pub(crate) fn read_checked_target(
 
 fn atomic_write(path: &Path, content: &[u8], default_mode: u32) -> Result<(), ConfigError> {
     let Some(parent) = path.parent() else {
-        return Err(ConfigError::InvalidBinaryPath {
+        return Err(ConfigError::MissingParent {
             path: path.to_path_buf(),
         });
     };
+    if parent.as_os_str().is_empty() {
+        return Err(ConfigError::MissingParent {
+            path: path.to_path_buf(),
+        });
+    }
     ensure_no_symlink_ancestors(parent)?;
     fs::create_dir_all(parent).map_err(|source| ConfigError::Io {
         path: parent.to_path_buf(),
@@ -423,7 +529,14 @@ fn atomic_write(path: &Path, content: &[u8], default_mode: u32) -> Result<(), Co
                     manual_hint: String::new(),
                 });
             }
-            Some(meta.permissions().mode() & 0o777)
+            let mode = meta.permissions().mode();
+            if (mode & 0o200) == 0 {
+                return Err(ConfigError::NotWritable {
+                    path: path.to_path_buf(),
+                    manual_hint: String::new(),
+                });
+            }
+            Some(mode & 0o777)
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
         Err(source) => {
@@ -449,6 +562,11 @@ fn atomic_write(path: &Path, content: &[u8], default_mode: u32) -> Result<(), Co
                 path: tmp_path.clone(),
                 source,
             })?;
+        file.set_permissions(fs::Permissions::from_mode(mode))
+            .map_err(|source| ConfigError::Io {
+                path: tmp_path.clone(),
+                source,
+            })?;
         file.write_all(content).map_err(|source| ConfigError::Io {
             path: tmp_path.clone(),
             source,
@@ -456,12 +574,6 @@ fn atomic_write(path: &Path, content: &[u8], default_mode: u32) -> Result<(), Co
         file.sync_all().map_err(|source| ConfigError::Io {
             path: tmp_path.clone(),
             source,
-        })?;
-        fs::set_permissions(&tmp_path, fs::Permissions::from_mode(mode)).map_err(|source| {
-            ConfigError::Io {
-                path: tmp_path.clone(),
-                source,
-            }
         })?;
         fs::rename(&tmp_path, path).map_err(|source| ConfigError::Io {
             path: path.to_path_buf(),
@@ -540,4 +652,90 @@ pub fn apply_plan(plan: &ConfigPlan) -> Result<(), ConfigError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn f4_ensure_no_symlink_ancestors_rejects_parent_dir_traversal() {
+        let dir = TempDir::new().unwrap();
+        let traversal = dir.path().join("sub").join("..").join("other");
+        let err = ensure_no_symlink_ancestors(&traversal)
+            .expect_err("Component::ParentDir must be rejected");
+        assert!(
+            err.to_string().contains(".."),
+            "unexpected error for parent traversal: {err}"
+        );
+
+        let missing_then_traversal = dir.path().join("does-not-exist").join("..").join("other");
+        assert!(
+            ensure_no_symlink_ancestors(&missing_then_traversal).is_err(),
+            "ParentDir after non-existent prefix must also be rejected"
+        );
+    }
+
+    #[test]
+    fn f5_atomic_write_rechecks_readonly_target_and_rejects_missing_parent() {
+        let dir = TempDir::new().unwrap();
+        let ro_file = dir.path().join("readonly.conf");
+        fs::write(&ro_file, b"old\n").unwrap();
+        let mut perms = fs::metadata(&ro_file).unwrap().permissions();
+        perms.set_mode(0o444);
+        fs::set_permissions(&ro_file, perms).unwrap();
+
+        let plan = ConfigPlan {
+            terminal: TerminalKind::Kitty,
+            ops: vec![FileOp::Write {
+                path: ro_file.clone(),
+                before: Some(b"old\n".to_vec()),
+                after: b"new\n".to_vec(),
+            }],
+        };
+        let err = apply_plan(&plan).expect_err("apply_plan must refuse read-only target");
+        let mut perms = fs::metadata(&ro_file).unwrap().permissions();
+        perms.set_mode(0o644);
+        fs::set_permissions(&ro_file, perms).unwrap();
+        assert!(
+            matches!(err, ConfigError::NotWritable { .. }),
+            "expected NotWritable, got {err:?}"
+        );
+
+        let no_parent_plan = ConfigPlan {
+            terminal: TerminalKind::Kitty,
+            ops: vec![FileOp::Write {
+                path: PathBuf::from("/"),
+                before: None,
+                after: b"x\n".to_vec(),
+            }],
+        };
+        let err = apply_plan(&no_parent_plan).expect_err("root path has no parent");
+        assert!(
+            matches!(err, ConfigError::MissingParent { .. }),
+            "expected MissingParent, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn f9_format_dry_run_shows_added_duplicate_lines() {
+        let plan = ConfigPlan {
+            terminal: TerminalKind::Kitty,
+            ops: vec![FileOp::Write {
+                path: PathBuf::from("/tmp/example.conf"),
+                before: Some(b"alpha\nbeta\n".to_vec()),
+                after: b"alpha\nbeta\nalpha\n".to_vec(),
+            }],
+        };
+        let diff = plan.format_dry_run();
+        assert!(
+            diff.contains("+alpha\n"),
+            "F9: real line diff must show added duplicate line '+alpha':\n{diff}"
+        );
+    }
 }

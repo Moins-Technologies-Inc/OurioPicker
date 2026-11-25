@@ -152,10 +152,33 @@ pub fn install_panic_hook() {
     });
 }
 
-struct TerminalGuard;
+/// RAII guard that enables raw mode and enters the alternate screen, restoring cooked mode
+/// and the main screen unconditionally on drop (including during stack unwinding).
+///
+/// # Examples
+///
+/// ```no_run
+/// use ouro_terminal_picker::TerminalGuard;
+///
+/// let _guard = TerminalGuard::enter()?;
+/// # Ok::<(), ouro_terminal_picker::TerminalError>(())
+/// ```
+#[derive(Debug)]
+pub struct TerminalGuard;
 
 impl TerminalGuard {
-    fn enter() -> Result<Self, TerminalError> {
+    /// Enter raw mode, switch to the alternate screen, and hide the cursor.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use ouro_terminal_picker::TerminalGuard;
+    ///
+    /// let guard = TerminalGuard::enter()?;
+    /// drop(guard);
+    /// # Ok::<(), ouro_terminal_picker::TerminalError>(())
+    /// ```
+    pub fn enter() -> Result<Self, TerminalError> {
         enable_raw_mode().map_err(|source| TerminalError::Io { source })?;
         let mut stdout = io::stdout();
         if let Err(source) = execute!(stdout, EnterAlternateScreen, Hide) {

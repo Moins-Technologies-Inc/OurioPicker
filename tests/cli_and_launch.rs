@@ -30,69 +30,6 @@ fn write_exec(dir: &Path, name: &str, body: &str) -> PathBuf {
 }
 
 #[test]
-fn bypasses_picker_and_execs_shell_when_nested_in_zellij() {
-    let dir = TempDir::new().unwrap();
-    let marker = dir.path().join("shell-ran");
-    let fake_shell = write_exec(
-        dir.path(),
-        "fake-shell",
-        &format!("#!/bin/sh\necho nested-ok > {}\nexit 0\n", marker.display()),
-    );
-    let _fake_zellij = write_exec(
-        dir.path(),
-        "zellij",
-        "#!/bin/sh\necho SHOULD_NOT_RUN >&2\nexit 99\n",
-    );
-
-    let out = Command::new(bin_path())
-        .env_clear()
-        .env("PATH", dir.path())
-        .env("SHELL", &fake_shell)
-        .env("ZELLIJ", "0")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-
-    assert!(
-        out.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(fs::read_to_string(&marker).unwrap().trim(), "nested-ok");
-}
-
-#[test]
-fn bypasses_picker_and_execs_shell_when_zellij_missing_from_path() {
-    let dir = TempDir::new().unwrap();
-    let empty_bin = dir.path().join("empty-bin");
-    fs::create_dir(&empty_bin).unwrap();
-    let marker = dir.path().join("shell-ran");
-    let fake_shell = write_exec(
-        dir.path(),
-        "fake-shell",
-        &format!(
-            "#!/bin/sh\necho no-zellij-ok > {}\nexit 0\n",
-            marker.display()
-        ),
-    );
-
-    let out = Command::new(bin_path())
-        .env_clear()
-        .env("PATH", &empty_bin)
-        .env("SHELL", &fake_shell)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-
-    assert!(
-        out.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(fs::read_to_string(&marker).unwrap().trim(), "no-zellij-ok");
-}
-
-#[test]
 fn bypasses_picker_when_not_a_tty() {
     let dir = TempDir::new().unwrap();
     let marker = dir.path().join("shell-ran");

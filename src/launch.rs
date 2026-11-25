@@ -13,6 +13,14 @@ use thiserror::Error;
 use crate::name::SessionName;
 
 /// Default POSIX fallback shell when `$SHELL` and `/etc/passwd` do not yield an executable shell.
+///
+/// # Examples
+///
+/// ```
+/// use ouro_terminal_picker::FALLBACK_SHELL;
+///
+/// assert_eq!(FALLBACK_SHELL, "/bin/sh");
+/// ```
 pub const FALLBACK_SHELL: &str = "/bin/sh";
 
 /// Action selected by the user in the session picker.
@@ -91,13 +99,6 @@ impl Choice {
 /// ```
 #[derive(Debug, Error)]
 pub enum LaunchError {
-    /// Failed to spawn Zellij.
-    #[error("failed to start zellij: {source}")]
-    SpawnZellij {
-        /// Underlying OS error.
-        #[source]
-        source: std::io::Error,
-    },
     /// Failed to exec the resolved shell.
     #[error("failed to exec shell {shell}: {source}")]
     ExecShell {
@@ -321,15 +322,60 @@ pub fn resolve_shell_with<F>(
 where
     F: Fn(&Path) -> bool,
 {
+    resolve_shell_with_exe(env_shell, passwd_content, uid, None, is_exec)
+}
+
+fn matches_self_exe(candidate: &Path, self_exe: Option<&Path>) -> bool {
+    let Some(me) = self_exe else {
+        return false;
+    };
+    if candidate == me {
+        return true;
+    }
+    match (fs::canonicalize(candidate), fs::canonicalize(me)) {
+        (Ok(c), Ok(m)) => c == m,
+        _ => false,
+    }
+}
+
+/// Resolve the user's shell while skipping candidates matching `self_exe` (avoiding exec loops).
+///
+/// # Examples
+///
+/// ```
+/// use std::ffi::OsStr;
+/// use std::path::PathBuf;
+/// use ouro_terminal_picker::launch::resolve_shell_with_exe;
+///
+/// let shell = resolve_shell_with_exe(
+///     Some(OsStr::new("/usr/bin/fish")),
+///     None,
+///     1000,
+///     None,
+///     |p| p == std::path::Path::new("/usr/bin/fish"),
+/// );
+/// assert_eq!(shell, PathBuf::from("/usr/bin/fish"));
+/// ```
+pub fn resolve_shell_with_exe<F>(
+    env_shell: Option<&OsStr>,
+    passwd_content: Option<&str>,
+    uid: u32,
+    self_exe: Option<&Path>,
+    is_exec: F,
+) -> PathBuf
+where
+    F: Fn(&Path) -> bool,
+{
     if let Some(raw) = env_shell {
         let candidate = Path::new(raw);
-        if candidate.is_absolute() && is_exec(candidate) {
+        if candidate.is_absolute() && !matches_self_exe(candidate, self_exe) && is_exec(candidate) {
             return candidate.to_path_buf();
         }
     }
     if let Some(passwd) = passwd_content
         && let Some(candidate) = parse_passwd_shell(passwd, uid)
         && candidate.is_absolute()
+        && !matches_self_exe(&candidate, self_exe)
         && is_exec(&candidate)
     {
         return candidate;
@@ -338,6 +384,8 @@ where
 }
 
 /// Resolve the current user's shell using the live environment and `/etc/passwd`.
+///
+/// Skips any candidate that canonicalizes to `std::env::current_exe()` to prevent exec loops.
 ///
 /// # Examples
 ///
@@ -353,10 +401,12 @@ pub fn resolve_shell() -> PathBuf {
     let uid = fs::metadata("/proc/self")
         .map(|m| m.uid())
         .unwrap_or(u32::MAX);
-    resolve_shell_with(
+    let self_exe = env::current_exe().ok();
+    resolve_shell_with_exe(
         env_shell.as_deref(),
         passwd.as_deref(),
         uid,
+        self_exe.as_deref(),
         is_executable_file,
     )
 }
@@ -407,9 +457,14 @@ pub fn run_choice(choice: &Choice, zellij_bin: &Path, shell: &Path) -> Result<i3
         return Err(exec_shell(shell));
     };
 
-    let status = cmd
-        .status()
-        .map_err(|source| LaunchError::SpawnZellij { source })?;
+    let status = match cmd.status() {
+        Ok(status) => status,
+        Err(source) => {
+            tracing::warn!(error = %source, "zellij fallback");
+            eprintln!("Could not start Zellij ({source}); opening your shell.");
+            return Err(exec_shell(shell));
+        }
+    };
 
     if status.success() {
         return Ok(0);
@@ -547,5 +602,34 @@ mod tests {
             find_in_path("zellij", Some(OsStr::new(&path_val))),
             Some(non_exec)
         );
+    }
+
+    #[test]
+    fn f8_resolve_shell_skips_env_shell_matching_current_exe() {
+        let dir = TempDir::new().unwrap();
+        let fake_self = dir.path().join("ouro-terminal-picker");
+        fs::write(&fake_self, "#!/bin/sh\n").unwrap();
+        let mut perms = fs::metadata(&fake_self).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&fake_self, perms).unwrap();
+
+        let symlink_self = dir.path().join("picker-link");
+        std::os::unix::fs::symlink(&fake_self, &symlink_self).unwrap();
+
+        let fake_zsh = dir.path().join("zsh");
+        fs::write(&fake_zsh, "#!/bin/sh\n").unwrap();
+        let mut perms = fs::metadata(&fake_zsh).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&fake_zsh, perms).unwrap();
+
+        let entries = format!("user:x:1000:1000::/srv/u:{}\n", fake_zsh.display());
+        let resolved = resolve_shell_with_exe(
+            Some(symlink_self.as_os_str()),
+            Some(&entries),
+            1000,
+            Some(&fake_self),
+            is_executable_file,
+        );
+        assert_eq!(resolved, fake_zsh);
     }
 }

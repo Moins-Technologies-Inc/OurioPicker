@@ -77,68 +77,107 @@ impl From<CliTerminal> for TerminalKind {
     }
 }
 
-#[derive(Clone, Default)]
-struct LogBuffer {
-    bytes: Arc<Mutex<Vec<u8>>>,
+struct LogState {
+    passthrough: bool,
+    buffer: Vec<u8>,
 }
 
-struct LogBufferWriter {
-    bytes: Arc<Mutex<Vec<u8>>>,
+#[derive(Clone)]
+struct LogSink {
+    state: Arc<Mutex<LogState>>,
 }
 
-impl Write for LogBufferWriter {
+struct LogSinkWriter {
+    state: Arc<Mutex<LogState>>,
+}
+
+impl Default for LogSink {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(LogState {
+                passthrough: true,
+                buffer: Vec::new(),
+            })),
+        }
+    }
+}
+
+impl Write for LogSinkWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if let Ok(mut guard) = self.bytes.lock() {
-            guard.extend_from_slice(buf);
+        if let Ok(mut guard) = self.state.lock() {
+            if guard.passthrough {
+                let _ = io::stderr().write_all(buf);
+                let _ = io::stderr().flush();
+            } else {
+                guard.buffer.extend_from_slice(buf);
+            }
         }
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        if let Ok(guard) = self.state.lock()
+            && guard.passthrough
+        {
+            let _ = io::stderr().flush();
+        }
         Ok(())
     }
 }
 
-impl<'a> MakeWriter<'a> for LogBuffer {
-    type Writer = LogBufferWriter;
+impl<'a> MakeWriter<'a> for LogSink {
+    type Writer = LogSinkWriter;
 
     fn make_writer(&'a self) -> Self::Writer {
-        LogBufferWriter {
-            bytes: Arc::clone(&self.bytes),
+        LogSinkWriter {
+            state: Arc::clone(&self.state),
         }
     }
 }
 
-impl LogBuffer {
-    fn flush_to_stderr(&self) {
-        if let Ok(mut guard) = self.bytes.lock()
-            && !guard.is_empty()
-        {
-            let _ = io::stderr().write_all(&guard);
-            let _ = io::stderr().flush();
-            guard.clear();
+impl LogSink {
+    fn buffer_until_restore(&self) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.passthrough = false;
+        }
+    }
+
+    fn resume_passthrough(&self) {
+        if let Ok(mut guard) = self.state.lock() {
+            if !guard.buffer.is_empty() {
+                let _ = io::stderr().write_all(&guard.buffer);
+                let _ = io::stderr().flush();
+                guard.buffer.clear();
+            }
+            guard.passthrough = true;
         }
     }
 }
 
-fn init_logging() -> Option<LogBuffer> {
+fn init_logging() -> Option<LogSink> {
     let directive = env::var(LOG_ENV_VAR).ok()?;
     if directive.trim().is_empty() {
         return None;
     }
     let filter = EnvFilter::try_new(directive).unwrap_or_else(|_| EnvFilter::new("info"));
-    let buffer = LogBuffer::default();
+    let sink = LogSink::default();
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_ansi(!no_color_enabled())
-        .with_writer(buffer.clone())
+        .with_writer(sink.clone())
         .try_init();
-    Some(buffer)
+    Some(sink)
 }
 
-fn flush_logs(logs: Option<&LogBuffer>) {
-    if let Some(buf) = logs {
-        buf.flush_to_stderr();
+fn buffer_logs(logs: Option<&LogSink>) {
+    if let Some(sink) = logs {
+        sink.buffer_until_restore();
+    }
+}
+
+fn resume_logs(logs: Option<&LogSink>) {
+    if let Some(sink) = logs {
+        sink.resume_passthrough();
     }
 }
 
@@ -245,7 +284,7 @@ fn run_print_config(terminal: TerminalKind) -> Result<()> {
     Ok(())
 }
 
-fn run_picker_mode(logs: Option<&LogBuffer>) -> Result<ExitCode> {
+fn run_picker_mode(logs: Option<&LogSink>) -> Result<ExitCode> {
     install_panic_hook();
     let shell = resolve_shell();
     let zellij_bin = find_in_path("zellij", env::var_os("PATH").as_deref());
@@ -256,15 +295,16 @@ fn run_picker_mode(logs: Option<&LogBuffer>) -> Result<ExitCode> {
         zellij_bin.as_deref(),
         is_interactive_tty(),
     ) {
-        flush_logs(logs);
+        resume_logs(logs);
         return Err(exec_shell(&shell).into());
     }
 
     let Some(zellij_path) = zellij_bin else {
-        flush_logs(logs);
+        resume_logs(logs);
         return Err(exec_shell(&shell).into());
     };
 
+    buffer_logs(logs);
     let choice_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         let mut picker = match list_sessions_with(&zellij_path) {
             Ok(sessions) => Picker::new(sessions, None),
@@ -273,19 +313,27 @@ fn run_picker_mode(logs: Option<&LogBuffer>) -> Result<ExitCode> {
         run_tui(&mut picker)
     }));
 
-    // Terminal is restored by TerminalGuard or panic hook; safe to flush buffered logs now.
-    flush_logs(logs);
-
+    // Ensure terminal is restored before switching tracing back to pass-through stderr.
     let choice = match choice_result {
-        Ok(Ok(choice)) => choice,
-        Ok(Err(_)) | Err(_) => {
+        Ok(Ok(choice)) => {
+            resume_logs(logs);
+            choice
+        }
+        Ok(Err(err)) => {
             restore_terminal();
+            resume_logs(logs);
+            tracing::warn!(error = %err, "picker TUI failed; falling back to shell");
+            Choice::Shell
+        }
+        Err(_) => {
+            restore_terminal();
+            resume_logs(logs);
+            tracing::warn!("picker panicked; falling back to shell");
             Choice::Shell
         }
     };
 
     let code = run_choice(&choice, &zellij_path, &shell)?;
-    flush_logs(logs);
     let byte = u8::try_from(code).unwrap_or(1);
     Ok(ExitCode::from(byte))
 }
@@ -309,7 +357,7 @@ fn main() -> ExitCode {
         }
     };
 
-    flush_logs(logs.as_ref());
+    resume_logs(logs.as_ref());
 
     match result {
         Ok(code) => code,

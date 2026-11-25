@@ -5,9 +5,29 @@ use std::fmt;
 use thiserror::Error;
 
 /// Maximum permitted length of a Zellij session name in bytes/characters.
+///
+/// # Examples
+///
+/// ```
+/// use ouro_terminal_picker::MAX_SESSION_NAME_LEN;
+///
+/// assert_eq!(MAX_SESSION_NAME_LEN, 64);
+/// ```
 pub const MAX_SESSION_NAME_LEN: usize = 64;
 
 /// Validation error returned by [`SessionName::new`].
+///
+/// # Examples
+///
+/// ```
+/// use ouro_terminal_picker::{NameError, SessionName};
+///
+/// assert_eq!(SessionName::new(""), Err(NameError::Empty));
+/// assert_eq!(
+///     NameError::InvalidStart('-').to_string(),
+///     "Use letters, digits, dot, dash, underscore (max 64)."
+/// );
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum NameError {
     /// Input was empty.
@@ -40,7 +60,7 @@ pub enum NameError {
 /// assert_eq!(name.as_str(), "work-1_main.dev");
 /// # Ok::<(), ouro_terminal_picker::NameError>(())
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SessionName(String);
 
 impl SessionName {

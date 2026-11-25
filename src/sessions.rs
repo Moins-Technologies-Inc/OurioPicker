@@ -20,7 +20,7 @@ const NO_SESSIONS_MARKER: &str = "No active zellij sessions found.";
 ///
 /// assert_ne!(SessionState::Running, SessionState::Exited);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionState {
     /// Active session that can be attached immediately.
     Running,
