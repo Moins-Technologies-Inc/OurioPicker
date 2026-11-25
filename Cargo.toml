@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+clap_complete = { version = "4", default-features = false }
 crossterm = { version = "0.28", default-features = false, features = ["events"] }
 thiserror = "2"
 toml_edit = "0.25"

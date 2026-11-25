@@ -8,7 +8,8 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::aot::{Generator, Shell};
 use ouro_terminal_picker::config::{kitty, rio};
 use ouro_terminal_picker::{
     Choice, Picker, TerminalKind, apply_plan, exec_shell, find_in_path, install_panic_hook,
@@ -59,6 +60,12 @@ enum Command {
         /// Target terminal emulator.
         #[arg(long, value_enum)]
         terminal: CliTerminal,
+    },
+    /// Generate shell completion scripts for the requested shell.
+    Completions {
+        /// Target shell to generate completions for.
+        #[arg(value_enum)]
+        shell: Shell,
     },
 }
 
@@ -284,6 +291,27 @@ fn run_print_config(terminal: TerminalKind) -> Result<()> {
     Ok(())
 }
 
+fn write_completions(shell: Shell, out: &mut dyn Write) -> Result<()> {
+    let mut cmd = Cli::command();
+    let bin_name = cmd.get_name().to_owned();
+    cmd.set_bin_name(bin_name);
+    cmd.build();
+    let mut buf = Vec::new();
+    shell
+        .try_generate(&cmd, &mut buf)
+        .context("failed to generate shell completions")?;
+    out.write_all(&buf)
+        .context("failed to write shell completions")?;
+    out.flush().context("failed to flush shell completions")?;
+    Ok(())
+}
+
+fn run_completions(shell: Shell) -> Result<()> {
+    let stdout = io::stdout();
+    let mut lock = stdout.lock();
+    write_completions(shell, &mut lock)
+}
+
 fn run_picker_mode(logs: Option<&LogSink>) -> Result<ExitCode> {
     install_panic_hook();
     let shell = resolve_shell();
@@ -339,31 +367,119 @@ fn run_picker_mode(logs: Option<&LogSink>) -> Result<ExitCode> {
 }
 
 fn main() -> ExitCode {
-    let logs = init_logging();
     let cli = Cli::parse();
 
     let result: Result<ExitCode> = match cli.command {
-        None => run_picker_mode(logs.as_ref()),
+        Some(Command::Completions { shell }) => run_completions(shell).map(|()| ExitCode::SUCCESS),
         Some(Command::Install {
             terminal,
             dry_run,
             force,
-        }) => run_install(terminal.into(), dry_run, force).map(|()| ExitCode::SUCCESS),
+        }) => {
+            let logs = init_logging();
+            let res = run_install(terminal.into(), dry_run, force).map(|()| ExitCode::SUCCESS);
+            resume_logs(logs.as_ref());
+            res
+        }
         Some(Command::Uninstall { terminal, dry_run }) => {
-            run_uninstall(terminal.into(), dry_run).map(|()| ExitCode::SUCCESS)
+            let logs = init_logging();
+            let res = run_uninstall(terminal.into(), dry_run).map(|()| ExitCode::SUCCESS);
+            resume_logs(logs.as_ref());
+            res
         }
         Some(Command::PrintConfig { terminal }) => {
-            run_print_config(terminal.into()).map(|()| ExitCode::SUCCESS)
+            let logs = init_logging();
+            let res = run_print_config(terminal.into()).map(|()| ExitCode::SUCCESS);
+            resume_logs(logs.as_ref());
+            res
+        }
+        None => {
+            let logs = init_logging();
+            let res = run_picker_mode(logs.as_ref());
+            resume_logs(logs.as_ref());
+            res
         }
     };
-
-    resume_logs(logs.as_ref());
 
     match result {
         Ok(code) => code,
         Err(err) => {
-            eprintln!("ouro-terminal-picker: {err:#}");
+            let _ = writeln!(io::stderr(), "ouro-terminal-picker: {err:#}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FailingWriter;
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "simulated broken pipe",
+            ))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct FailingFlushWriter;
+
+    impl Write for FailingFlushWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "simulated flush failure",
+            ))
+        }
+    }
+
+    #[test]
+    fn write_completions_returns_error_on_failing_writer() {
+        for &shell in Shell::value_variants() {
+            let mut writer = FailingWriter;
+            let err = write_completions(shell, &mut writer).unwrap_err();
+            let chain = format!("{err:#}");
+            assert!(
+                chain.contains("simulated broken pipe"),
+                "{shell}: unexpected error chain: {chain}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_completions_returns_error_on_failing_flush() {
+        for &shell in Shell::value_variants() {
+            let mut writer = FailingFlushWriter;
+            let err = write_completions(shell, &mut writer).unwrap_err();
+            let chain = format!("{err:#}");
+            assert!(
+                chain.contains("simulated flush failure"),
+                "{shell}: unexpected error chain: {chain}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_completions_succeeds_for_all_clap_shells() {
+        for &shell in Shell::value_variants() {
+            let mut buf = Vec::new();
+            write_completions(shell, &mut buf).unwrap();
+            let text = String::from_utf8(buf).unwrap();
+            assert!(
+                text.contains("ouro-terminal-picker"),
+                "{shell} completion missing binary name"
+            );
         }
     }
 }
