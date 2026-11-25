@@ -11,10 +11,18 @@ publish = false
 name = "ouro_terminal_picker"
 path = "src/lib.rs"
 
+[[bin]]
+name = "ouro-terminal-picker"
+path = "src/main.rs"
+
 [dependencies]
+anyhow = "1"
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+crossterm = { version = "0.28", default-features = false, features = ["events"] }
 thiserror = "2"
 toml_edit = "0.25"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -6,6 +6,7 @@ pub mod launch;
 pub mod name;
 pub mod picker;
 pub mod sessions;
+pub mod term;
 
 pub use config::{ConfigError, ConfigPlan, FileOp, TerminalKind, apply_plan};
 pub use launch::{
@@ -18,4 +19,8 @@ pub use picker::{Key, Mode, Picker, Step};
 pub use sessions::{
     Session, SessionListError, SessionState, list_sessions, list_sessions_with, parse_sessions,
     strip_ansi,
+};
+pub use term::{
+    TerminalError, install_panic_hook, is_interactive_tty, map_key_event, no_color_enabled,
+    restore_terminal, run_tui,
 };

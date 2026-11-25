@@ -287,19 +287,27 @@ pub fn list_sessions_with(zellij_bin: &Path) -> Result<Vec<Session>, SessionList
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-
     use tempfile::TempDir;
 
     use super::*;
 
     fn write_script(dir: &TempDir, name: &str, body: &str) -> std::path::PathBuf {
+        use std::io::Write;
+        use std::process::Stdio;
         let path = dir.path().join(name);
-        fs::write(&path, body).unwrap();
-        let mut perms = fs::metadata(&path).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&path, perms).unwrap();
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "cat > \"$1\" && chmod 0755 \"$1\"", "sh"])
+            .arg(&path)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(body.as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success());
         path
     }
 

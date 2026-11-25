@@ -169,10 +169,16 @@ pub fn plan_install_bytes(
         }
     }
 
-    let mut table = Table::new();
-    table.insert("program", value(bin_str));
-    table.insert("args", value(Array::new()));
-    doc.insert("shell", Item::Table(table));
+    if let Some(existing_table) = doc.get_mut("shell").and_then(Item::as_table_mut) {
+        existing_table.clear();
+        existing_table.insert("program", value(bin_str));
+        existing_table.insert("args", value(Array::new()));
+    } else {
+        let mut table = Table::new();
+        table.insert("program", value(bin_str));
+        table.insert("args", value(Array::new()));
+        doc.insert("shell", Item::Table(table));
+    }
 
     let after = doc.to_string().into_bytes();
     ops.push(FileOp::Write {
@@ -263,8 +269,20 @@ pub fn plan_uninstall_bytes(
         });
     }
 
+    let preserved_comments = doc
+        .get("shell")
+        .and_then(Item::as_table)
+        .and_then(|t| t.decor().prefix())
+        .and_then(|raw| raw.as_str())
+        .filter(|prefix| prefix.contains('#'))
+        .map(ToOwned::to_owned);
+
     let _ = doc.remove("shell");
-    let after = doc.to_string().into_bytes();
+    let mut rendered = doc.to_string();
+    if let Some(comments) = preserved_comments {
+        rendered.push_str(&comments);
+    }
+    let after = rendered.into_bytes();
     Ok(ConfigPlan {
         terminal: TerminalKind::Rio,
         ops: vec![FileOp::Write {
