@@ -1,0 +1,11 @@
+# Exact toolchain pin (owner decision D8): every Ouro repository pins the same exact version and
+# bumps it deliberately, in one reviewed change across all repositories, through an issue.
+# Minimum 1.100.0: Cargo < 1.100 ignores the dependency cooldown and [lints.cargo].
+# scripts/resume.sh checks the floor; scripts/check.sh refuses a channel that is not an exact
+# MAJOR.MINOR.PATCH >= 1.100.0. Install it once per machine:
+#   rustup toolchain install 1.100.0 --profile minimal -c rustfmt,clippy,rust-src
+# Every crate also sets rust-version = "1.100".
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy", "rust-src"]
+profile = "minimal"

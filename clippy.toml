@@ -1,0 +1,6 @@
+# Test code may unwrap, expect, panic and index (the D2 restriction lints apply to non-test code).
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-dbg-in-tests = true
