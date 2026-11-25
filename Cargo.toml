@@ -13,6 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 thiserror = "2"
+toml_edit = "0.25"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
