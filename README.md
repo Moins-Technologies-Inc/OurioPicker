@@ -1,0 +1,16 @@
+# OurioPicker (`ouro-terminal-picker`)
+
+Small in-terminal Zellij session picker that runs as a terminal's shell program (Kitty, Rio, Ourio).
+
+When a terminal opens, `ouro-terminal-picker` lists existing Zellij sessions (running ones first, exited ones marked as resurrectable), offers creating a new named or unnamed session, or starting a plain shell. It also includes `install`, `uninstall`, and `print-config` subcommands to wire Kitty and Rio/Ourio configurations safely and idempotently.
+
+## Documentation
+
+- [Zellij session list format](docs/wiki/zellij-session-list.md)
+- [Terminal wiring (Kitty and Rio/Ourio)](docs/wiki/terminal-wiring.md)
+- [Feature matrix](FEATURES.md)
+- [Current work](CURRENT_WORK.md)
+
+## License
+
+MIT — see [LICENSE](LICENSE).
