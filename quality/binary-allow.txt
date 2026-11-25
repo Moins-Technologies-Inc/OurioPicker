@@ -1,0 +1,4 @@
+# Reviewed binary files allowed by the OuroHub commit/push gate (scripts/check.sh).
+# Format: PATH BLOB REASON
+packaging/icons/ouro-terminal-picker.png 4d17069ff1cbe0d56f7c0a67e5991169bcd7a993 Owner-accepted OurioPicker light application icon PNG (2026-11-25, OurioPicker#5)
+packaging/icons/ouro-terminal-picker-dark.png f9c5709cabc86c524ed770b354b937e035bf0de5 Owner-accepted OurioPicker dark application icon PNG (2026-11-25, OurioPicker#5)
