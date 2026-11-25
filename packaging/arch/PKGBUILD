@@ -3,7 +3,7 @@
 pkgname=ouro-terminal-picker
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="Pick a Zellij session, start a new one or open a plain shell when a terminal opens (OurioPicker)"
+pkgdesc="Zellij session picker that runs when a terminal opens (OurioPicker)"
 arch=('x86_64')
 url="https://github.com/Moins-Technologies-Inc/OurioPicker"
 license=('MIT')
@@ -15,19 +15,27 @@ sha512sums=('eb6ea8a04fc7a37c51d5e79d0f6b268d316c197185c345c0158263369d2a9bf38c3
 options=('!lto')
 
 # The source tree selects Rust 1.100.0 (rust-toolchain.toml) and links with
-# clang + mold (.cargo/config.toml).
+# clang (.cargo/config.toml). Its mold link flag lives in target rustflags, which
+# a RUSTFLAGS from makepkg.conf replaces; mold is then unused but stays listed
+# for builds without RUSTFLAGS. RUSTUP_TOOLCHAIN is unset so the pin applies.
 
 prepare() {
+  unset RUSTUP_TOOLCHAIN
   cd "OurioPicker-${pkgver}"
   cargo fetch --locked --target "$(rustc --print host-tuple)"
 }
 
 build() {
+  unset RUSTUP_TOOLCHAIN
+  export CARGO_TARGET_DIR=target
   cd "OurioPicker-${pkgver}"
   cargo build --frozen --release --bin ouro-terminal-picker
 }
 
 check() {
+  # Library tests only: the PTY and Kitty integration suites need python3 and kitty.
+  unset RUSTUP_TOOLCHAIN
+  export CARGO_TARGET_DIR=target
   cd "OurioPicker-${pkgver}"
   cargo test --frozen --lib
 }
