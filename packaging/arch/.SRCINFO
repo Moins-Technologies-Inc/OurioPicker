@@ -1,0 +1,20 @@
+pkgbase = ouro-terminal-picker
+	pkgdesc = Zellij session picker that runs when a terminal opens (OurioPicker)
+	pkgver = 0.1.1
+	pkgrel = 1
+	url = https://github.com/Moins-Technologies-Inc/OurioPicker
+	arch = x86_64
+	license = MIT
+	makedepends = cargo
+	makedepends = clang
+	makedepends = mold
+	depends = gcc-libs
+	depends = glibc
+	optdepends = zellij: sessions to pick from
+	optdepends = kitty: terminal wiring
+	optdepends = rio: terminal wiring
+	options = !lto
+	source = ouro-terminal-picker-0.1.1.tar.gz::https://github.com/Moins-Technologies-Inc/OurioPicker/archive/v0.1.1.tar.gz
+	sha512sums = 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+
+pkgname = ouro-terminal-picker

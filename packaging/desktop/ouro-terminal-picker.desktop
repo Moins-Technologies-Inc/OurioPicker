@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=OurioPicker
+GenericName=Zellij Session Picker
+Comment=Pick, create, or resurrect a Zellij session in a terminal
+TryExec=ouro-terminal-picker
+Exec=ouro-terminal-picker
+Icon=ouro-terminal-picker
+Terminal=true
+Categories=System;ConsoleOnly;
+Keywords=zellij;session;picker;terminal;shell;multiplexer;ourio;
+StartupNotify=false

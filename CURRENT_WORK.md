@@ -3,51 +3,27 @@
 Updated: 2026-11-25. Standard and main index live in OuroHub (`CURRENT_WORK.md`, `work/README.md`).
 
 ## State
-- PICK-001 (`ouro-terminal-picker` v1) merged into `main` (OurioPicker#2, issue #1 closed) after review round 1 FAIL and a delta review PASS bound to `a24fd4f`; repository public (E252). Arch package (`packaging/arch/PKGBUILD`) merged in OurioPicker#4 (issue #3 closed). Governing plan: OuroHub `plans/ouro-terminal-picker/PICK-001-session-picker.md`.
-- PICK-003 (`ouro-terminal-picker completions <shell>`, issue #6, branch `feature/6-completions`): implemented with `clap_complete 4.6.12` (MIT OR Apache-2.0, resolved under the 7-day Cargo cooldown with zero extra transitive dependencies), ready for delta review.
+- **PICK-001** (`ouro-terminal-picker` v1) merged into `main` (OurioPicker#2, issue #1 closed, tag `v0.1.0`) and base Arch `PKGBUILD` merged (OurioPicker#4, issue #3 closed, `deeb657`); repository public (E252). Governing plan: OuroHub `plans/ouro-terminal-picker/PICK-001-session-picker.md`.
+- **PICK-003** (`ouro-terminal-picker completions <shell>`, issue #6, PR #7): merged into `main` (`e889cbb`), using `clap_complete 4.6.12` (MIT OR Apache-2.0, zero extra transitive deps).
+- **Binary allowlist:** `quality/binary-allow.txt` merged on `main` (`2b8d20e`) allowing the exact blob SHAs of both owner-accepted PNG icons (`ouro-terminal-picker.png` and `ouro-terminal-picker-dark.png`).
+- **PICK-002** (issue `#5`, branch `feature/5-desktop-aur`, plan `docs/plans/PICK-002-desktop-and-aur.md`): **Ready for review (v0.1.1).** Merged `origin/main`, bundled both owner-accepted PNG icons verbatim, bumped crate version to `0.1.1` (syncing `Cargo.lock` offline on the workstation), unblocked `packaging/arch/PKGBUILD` (`pkgver=0.1.1`, `pkgrel=1`) to build from the single `v0.1.1` release tarball, generate Bash/Fish/Zsh completions from `./target/release/ouro-terminal-picker`, and install binary, `.desktop`, both pixmap icons, all three shell completions, LICENSE, README, and wiki docs. Regenerated `packaging/arch/.SRCINFO` via `makepkg --printsrcinfo`. Remaining post-merge step: tag `v0.1.1`, refresh the `sha512sums` placeholder and `.SRCINFO` to the published GitHub `v0.1.1.tar.gz` digest, and manually push `PKGBUILD` + `.SRCINFO` to AUR `master`.
 
 ## What exists
-- Library crate `ouro_terminal_picker` (`src/lib.rs`, `unsafe_code = "forbid"`, edition 2024, `rust-version = "1.100"`, `rust-toolchain.toml` pinned to `1.100.0`):
-  - `src/name.rs`: `MAX_SESSION_NAME_LEN`, `SessionName`, `NameError` (`1..=64` ASCII `[A-Za-z0-9._-]`, no leading `-` or `.`).
-  - `src/sessions.rs`: `Session`, `SessionState`, `SessionListError`, `strip_ansi`, `parse_sessions`, `list_sessions`, `list_sessions_with` (handles Zellij 0.46.0 empty-list exit `1` on stderr `"No active zellij sessions found."`, running/current ordered before exited, `list_sessions` tracing span).
-  - `src/launch.rs`: `FALLBACK_SHELL`, `Choice`, `LaunchError`, `zellij_command`, `zellij_command_with`, `is_executable_file`, `find_in_path`, `should_bypass_picker`, `parse_passwd_shell`, `resolve_shell_with`, `resolve_shell_with_exe`, `resolve_shell` (skips candidates canonicalizing to `current_exe()`), `exec_shell`, `run_choice` (falls back to shell with notice and warn log on both spawn failure and non-zero exit).
-  - `src/picker.rs`: pure state machine `Picker`, `Key`, `Mode`, `Step`, and `render_lines` (fits `20x5` and wider, text-only markers, scrolling viewport).
-  - `src/config/{mod,kitty,rio}.rs`: `TerminalKind`, `ConfigError` (incl. `ParentTraversal`, `MissingParent`, `InvalidUtf8`), `FileOp`, `ConfigPlan` (LCS line diff for `--dry-run`), atomic mode-preserving `apply_plan` (`file.set_permissions` on open fd, writability re-check), symlink-parent/target/traversal/read-only refusal, Kitty strict-UTF-8 two-line marked include block, Rio/Ourio `toml_edit` format-preserving edits with `--force` `0600` backups.
-  - `src/term.rs`: `TerminalError`, `TerminalGuard` (public RAII guard), `map_key_event`, `is_interactive_tty`, `no_color_enabled`, `restore_terminal`, `install_panic_hook`, `run_tui`.
-- Binary `ouro-terminal-picker` (`src/main.rs`): picker mode (with panic `catch_unwind` + shell fallback, `run_tui` error warn logging, and `LogSink` switching to direct stderr pass-through after terminal restore before any `exec`), `install`, `uninstall`, `print-config`, and `completions <shell>` (`clap_complete::aot::{Generator, Shell}` via `Cli::command()` + `try_generate` into an in-memory buffer before `write_all` + `flush`, executed before tracing initialization, shell resolution, TTY/nested `ZELLIJ` guards, and any config I/O).
-- Integration & PTY suites (`tests/cli_and_launch.rs`, `tests/completions.rs`, `tests/pty_smoke.rs`) and wiki docs (`docs/wiki/zellij-session-list.md`, `docs/wiki/terminal-wiring.md`, `docs/wiki/shell-completions.md`).
+- Library crate `ouro_terminal_picker` (`src/lib.rs`, `unsafe_code = "forbid"`, edition 2024, `rust-version = "1.100"`, `rust-toolchain.toml` pinned to `1.100.0`, version `0.1.1`):
+  - `src/name.rs`, `src/sessions.rs`, `src/launch.rs`, `src/picker.rs`, `src/config/{mod,kitty,rio}.rs`, `src/term.rs`.
+- Binary `ouro-terminal-picker` (`src/main.rs`): picker mode, `install`, `uninstall`, `print-config`, and `completions <shell>` (`bash`, `fish`, `zsh`, plus standard Clap `elvish`/`powershell`).
+- Integration & PTY suites (`tests/cli_and_launch.rs`, `tests/completions.rs`, `tests/pty_smoke.rs`) and wiki docs (`docs/wiki/zellij-session-list.md`, `docs/wiki/terminal-wiring.md`, `docs/wiki/shell-completions.md`, `docs/wiki/aur-packaging.md`).
+- Packaging (`feature/5-desktop-aur`): `packaging/desktop/ouro-terminal-picker.desktop`, `packaging/icons/ouro-terminal-picker.png`, `packaging/icons/ouro-terminal-picker-dark.png`, `packaging/arch/PKGBUILD` (`0.1.1-1`), `packaging/arch/.SRCINFO`, `packaging/tests/verify-desktop-and-aur.sh`.
 
-## Round-2 review fixes applied (F1–F9)
-- **F1:** `run_choice` catches Zellij spawn errors, logs `warn` (`"zellij fallback"`), prints `"Could not start Zellij (<reason>); opening your shell."`, and execs the shell.
-- **F2:** `LogSink` buffers only while the TUI is active and switches to direct stderr pass-through immediately after terminal restoration (before `exec_shell`); `run_tui` errors are logged at `warn` instead of silently dropped.
-- **F3:** Moved nested-`ZELLIJ` and missing-`zellij` bypass tests into the real PTY driver (asserting no `\x1b[?1049h` and shell execution); added `stty -a` cooked-mode (`icanon` + `echo`) checks in fake `zellij` and fake `SHELL`; added real-PTY `TerminalGuard` panic-unwind + panic-hook restoration test.
-- **F4:** `ensure_no_symlink_ancestors` rejects `Component::ParentDir` (`ConfigError::ParentTraversal`) across the full path.
-- **F5:** `atomic_write` uses `ConfigError::MissingParent`, re-checks target writability (`ConfigError::NotWritable`), and sets permissions on the open `File` handle (`file.set_permissions`).
-- **F6:** Kitty planner rejects invalid UTF-8 in `kitty.conf` cleanly (`ConfigError::InvalidUtf8`) instead of `from_utf8_lossy`.
-- **F7:** Added runnable `# Examples` doctests to `NameError` and all public constants (`MAX_SESSION_NAME_LEN`, `FALLBACK_SHELL`, `INCLUDE_FILE_NAME`, `MARKER_LINE`, `INCLUDE_LINE`).
-- **F8:** `resolve_shell` skips `$SHELL` / `/etc/passwd` entries canonicalizing to `current_exe()`; dropped unused derives (`PartialOrd`/`Ord` on `SessionName`, `Clone` on `Picker`, `Hash` on `SessionState`/`Key`/`Mode`/`TerminalKind`).
-- **F9:** `ConfigPlan::format_dry_run` computes a real LCS line diff so added duplicate lines are shown.
+## Verification (PICK-002 v0.1.1 on `feature/5-desktop-aur`)
+- Laptop (light checks only):
+  - `desktop-file-validate --warn-kde packaging/desktop/ouro-terminal-picker.desktop`: PASS (exit 0, 0 warnings).
+  - `packaging/tests/verify-desktop-and-aur.sh`: PASS (all hermetic checks green, incl. `.SRCINFO` byte-sync and icon blob SHA verification against `quality/binary-allow.txt`).
+  - Hub scans (`leakguard`, `secrets`, `privacy`, `binary-files`): PASS on every commit/push.
+- Workstation (1.100.0, `nice -n 10`, `CARGO_BUILD_JOBS=8`, isolated target dir):
+  - `cargo +1.100.0 fmt --all --check`, `cargo +1.100.0 clippy --locked --all-targets --all-features -- -D warnings`, `cargo +1.100.0 test --locked --all-features`, `RUSTDOCFLAGS="-D warnings" cargo +1.100.0 doc --locked --no-deps`, `cargo-deny`, `cargo-machete`, release completion generation (`bash`, `fish`, `zsh`), and full hub `scripts/check.sh push` gate: verified on the workstation before push.
 
-## Deviations from the plan
-1. **Kitty marker placement:** Kitty's parser (`kitty.config.load_config`) rejects inline `#` comments on `include` lines. Implemented a two-line marked block (`# ouro-terminal-picker\ninclude ouro-terminal-picker.conf`) validated directly against Kitty's parser (`kitty +runpy`) with zero bad lines.
-2. **`zellij_command` return type:** returns `Option<Command>` (`None` for `Choice::Shell`) instead of `Command`, keeping the function pure, total, and panic-free.
-3. **Zellij 0.46.0 empty-list exit status:** `zellij list-sessions --no-formatting` exits `1` with `"No active zellij sessions found."` on stderr (empty stdout) when no sessions exist; `list_sessions_with` treats that exact case as `Ok(Vec::new())`.
-4. **PTY smoke test driver:** uses `/usr/bin/python3 -I` stdlib `pty.openpty()` (zero `unsafe`, zero extra dev-dependencies) instead of `script -qec`.
-5. **Missing `AGENTS.md` on `main`:** writing `AGENTS.md` is blocked by the harness's protected-file guard and left for the owner/orchestrator.
-
-## Verification
-- Workstation (1.100.0, `nice -n 10`, `CARGO_BUILD_JOBS=8`, dedicated `CARGO_TARGET_DIR`):
-  - `cargo fmt --all --check`: PASS
-  - `cargo check --locked --all-targets --all-features`: PASS
-  - `cargo clippy --locked --all-targets --all-features -- -D warnings`: PASS (0 warnings)
-  - `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps`: PASS (0 warnings)
-  - `cargo test --locked`: 51 lib unit + 3 bin unit + 3 `cli_and_launch` + 8 `completions` + 10 `pty_smoke` + 77 doctests = 152 passed, 0 failed, 0 ignored
-  - `cargo deny check` (`0.20.2`): PASS (`advisories ok, bans ok, licenses ok, sources ok`)
-  - `cargo machete` (`0.9.2`): PASS (0 unused dependencies)
-  - Completion syntax checks on built binary: `bash -n` PASS (228 lines), `fish --no-execute` PASS (51 lines), `zsh -n` SKIPPED (`zsh` not installed on workstation; generated 175 lines starting with `#compdef ouro-terminal-picker`)
-  - Hub `scripts/check.sh push` gate on workstation clone: PASS
-
-## Next step
-1. Fresh independent review of `feature/6-completions` (issue #6).
-2. Packaging stream updates `packaging/arch/PKGBUILD` / `.SRCINFO` to generate and install bash/fish/zsh completions from the freshly built binary.
-3. Merge `feature/6-completions` into `main` (`Closes #6`) after review PASS.
+## Next steps
+1. Fresh independent review of `feature/5-desktop-aur` (issue `#5`).
+2. Merge into `main` (`Closes #5`) after review PASS.
+3. Tag `v0.1.1`, update `packaging/arch/PKGBUILD` `sha512sums` from the published GitHub `v0.1.1.tar.gz` tarball (via `aur-update-sha.py`), regenerate `.SRCINFO`, run a clean local `makepkg` build, and manually upload `PKGBUILD` + `.SRCINFO` to AUR `master`.

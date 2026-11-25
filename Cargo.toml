@@ -1,6 +1,6 @@
 [package]
 name = "ouro-terminal-picker"
-version = "0.1.0"
+version = "0.1.1"
 description = "In-terminal Zellij session picker and terminal configuration helper for Kitty and Rio/Ourio"
 edition = "2024"
 rust-version = "1.100"

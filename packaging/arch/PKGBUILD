@@ -1,17 +1,21 @@
 # Maintainer: Moins Technologies Inc. <https://github.com/Moins-Technologies-Inc>
 
 pkgname=ouro-terminal-picker
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Zellij session picker that runs when a terminal opens (OurioPicker)"
 arch=('x86_64')
 url="https://github.com/Moins-Technologies-Inc/OurioPicker"
 license=('MIT')
 depends=('gcc-libs' 'glibc')
-optdepends=('zellij: sessions to pick from' 'kitty: terminal wiring' 'rio: terminal wiring')
+optdepends=(
+  'zellij: sessions to pick from'
+  'kitty: terminal wiring'
+  'rio: terminal wiring'
+)
 makedepends=('cargo' 'clang' 'mold')
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Moins-Technologies-Inc/OurioPicker/archive/v${pkgver}.tar.gz")
-sha512sums=('eb6ea8a04fc7a37c51d5e79d0f6b268d316c197185c345c0158263369d2a9bf38c360d16160a68bd2d7e75f8548d8e0180c130c7c0262aed8de1c540661b6721')
+sha512sums=('00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000') # updated on v0.1.1 tag
 options=('!lto')
 
 # The source tree selects Rust 1.100.0 (rust-toolchain.toml) and links with
@@ -30,6 +34,10 @@ build() {
   export CARGO_TARGET_DIR=target
   cd "OurioPicker-${pkgver}"
   cargo build --frozen --release --bin ouro-terminal-picker
+  mkdir -p target/completions
+  ./target/release/ouro-terminal-picker completions bash > target/completions/ouro-terminal-picker.bash
+  ./target/release/ouro-terminal-picker completions fish > target/completions/ouro-terminal-picker.fish
+  ./target/release/ouro-terminal-picker completions zsh  > target/completions/_ouro-terminal-picker
 }
 
 check() {
@@ -43,7 +51,22 @@ check() {
 package() {
   cd "OurioPicker-${pkgver}"
   install -Dm755 target/release/ouro-terminal-picker -t "${pkgdir}/usr/bin"
+  install -Dm644 packaging/desktop/ouro-terminal-picker.desktop \
+    "${pkgdir}/usr/share/applications/ouro-terminal-picker.desktop"
+  install -Dm644 packaging/icons/ouro-terminal-picker.png \
+    "${pkgdir}/usr/share/pixmaps/ouro-terminal-picker.png"
+  install -Dm644 packaging/icons/ouro-terminal-picker-dark.png \
+    "${pkgdir}/usr/share/pixmaps/ouro-terminal-picker-dark.png"
+  install -Dm644 target/completions/ouro-terminal-picker.bash \
+    "${pkgdir}/usr/share/bash-completion/completions/ouro-terminal-picker"
+  install -Dm644 target/completions/ouro-terminal-picker.fish \
+    "${pkgdir}/usr/share/fish/vendor_completions.d/ouro-terminal-picker.fish"
+  install -Dm644 target/completions/_ouro-terminal-picker \
+    "${pkgdir}/usr/share/zsh/site-functions/_ouro-terminal-picker"
   install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
   install -Dm644 docs/wiki/terminal-wiring.md "${pkgdir}/usr/share/doc/${pkgname}/terminal-wiring.md"
+  install -Dm644 docs/wiki/shell-completions.md "${pkgdir}/usr/share/doc/${pkgname}/shell-completions.md"
+  install -Dm644 docs/wiki/zellij-session-list.md "${pkgdir}/usr/share/doc/${pkgname}/zellij-session-list.md"
+  install -Dm644 docs/wiki/aur-packaging.md "${pkgdir}/usr/share/doc/${pkgname}/aur-packaging.md"
 }

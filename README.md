@@ -9,6 +9,8 @@ When a terminal opens, `ouro-terminal-picker` lists existing Zellij sessions (ru
 - [Zellij session list format](docs/wiki/zellij-session-list.md)
 - [Terminal wiring (Kitty and Rio/Ourio)](docs/wiki/terminal-wiring.md)
 - [Shell completions](docs/wiki/shell-completions.md)
+- [Desktop launcher and AUR packaging](docs/wiki/aur-packaging.md)
+- [PICK-002 plan (desktop launcher & AUR)](docs/plans/PICK-002-desktop-and-aur.md)
 - [Feature matrix](FEATURES.md)
 - [Current work](CURRENT_WORK.md)
 
